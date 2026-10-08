@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Gravel Load Tracker</title>
+<style>
+  :root {
+    --bg: #0c0c0d; --surface: #151517; --line: #26262a; --text: #ececec;
+    --muted: #8b8b90; --faint: #5a5a60; --accent: #e9a23b; --danger: #e5675f; --ok: #6cc08b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    display: flex; flex-direction: column; padding-bottom: 64px; color-scheme: dark;
+    font-variant-numeric: tabular-nums;
+  }
+  button { font-family: inherit; }
+  header {
+    padding: 16px 20px 12px; position: sticky; top: 0; z-index: 10;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px;
+  }
+  header h1 { font-size: 0.95rem; font-weight: 600; letter-spacing: 0.2px; }
+  header .date { font-size: 0.8rem; color: var(--muted); }
+  .save-status { flex-basis: 100%; font-size: 0.7rem; color: var(--faint); }
+  .save-status::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--faint); }
+  .save-status.ok::before { background: var(--ok); }
+  .save-status.bad { color: var(--danger); }
+  .save-status.bad::before { background: var(--danger); }
+
+  .tab-bar {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+    background: var(--bg); border-top: 1px solid var(--line); height: 56px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-bar button {
+    flex: 1; border: none; background: transparent; color: var(--faint);
+    font-size: 0.8rem; font-weight: 500; cursor: pointer; position: relative;
+  }
+  .tab-bar button.active { color: var(--text); }
+  .tab-bar button.active::after {
+    content: ''; position: absolute; top: -1px; left: 35%; right: 35%; height: 2px; background: var(--accent);
+  }
+  .tab-bar button .icon { display: none; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Tracker */
+  .count-display { text-align: center; padding: 36px 20px 24px; }
+  .count-display .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+  .count-display .number { font-size: 4.5rem; font-weight: 300; line-height: 1; margin-top: 8px; }
+  .field-row { display: flex; gap: 12px; padding: 0 20px; }
+  .field-row .field-wrap { flex: 1; padding: 8px 0; }
+  .field-wrap { padding: 8px 20px; }
+  .field-wrap label, .add-day-form label, .form-label {
+    display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 500;
+  }
+  input {
+    font-family: inherit; color-scheme: dark;
+  }
+  .field-wrap input {
+    width: 100%; padding: 10px 0; border: none; border-bottom: 1px solid var(--line);
+    background: transparent; color: var(--text); font-size: 1rem; outline: none; border-radius: 0;
+  }
+  .field-wrap input:focus { border-bottom-color: var(--accent); }
+  .main-btn-wrap { padding: 20px 20px 12px; }
+  button.add-btn {
+    width: 100%; padding: 18px; border: none; border-radius: 10px;
+    background: var(--accent); color: #111; font-size: 1rem; font-weight: 600; letter-spacing: 0.5px;
+    cursor: pointer; transition: transform 0.08s, opacity 0.15s;
+  }
+  button.add-btn:active { transform: scale(0.98); opacity: 0.9; }
+  .actions-row { display: flex; gap: 10px; padding: 0 20px 8px; }
+  .actions-row button {
+    flex: 1; padding: 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: transparent; color: var(--muted); font-size: 0.85rem; font-weight: 500; cursor: pointer;
+  }
+  .actions-row button:active { background: var(--surface); }
+  .actions-row button.danger { color: var(--danger); }
+
+  .history { flex: 1; padding: 20px 20px 24px; }
+  h2, .history h2, .history-tab h2, .data-tab h2 {
+    font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px;
+    font-weight: 500; margin: 8px 0 12px;
+  }
+  .load-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .load-item .left { display: flex; align-items: center; gap: 16px; }
+  .load-item .num-badge { color: var(--faint); font-size: 0.85rem; width: 22px; text-align: right; flex-shrink: 0; }
+  .load-item .time { font-size: 0.95rem; font-weight: 500; }
+  .load-item .meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .load-item .elapsed { font-size: 0.7rem; color: var(--faint); margin-top: 2px; }
+  .load-item button.undo {
+    background: transparent; border: none; color: var(--faint); font-size: 0.8rem;
+    cursor: pointer; padding: 6px 0 6px 12px;
+  }
+  .empty { text-align: center; color: var(--faint); padding: 40px 16px; font-size: 0.85rem; line-height: 1.6; }
+
+  /* History */
+  .history-tab, .data-tab { padding: 20px; }
+  .day-summary { padding: 8px 0 24px; text-align: left; }
+  .day-summary .total { font-size: 2.5rem; font-weight: 300; line-height: 1; }
+  .day-summary .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px; }
+
+  .add-day-form, .backup-card {
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 24px;
+  }
+  .add-day-form h3, .backup-card h3 { font-size: 0.9rem; font-weight: 500; margin-bottom: 14px; }
+  .add-day-form .form-row { margin-bottom: 14px; }
+  .add-day-form input {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); color: var(--text); font-size: 0.95rem; outline: none;
+    min-height: 44px;
+  }
+  .add-day-form input:focus { border-color: var(--accent); }
+  .add-day-form .load-entry-list { margin-bottom: 12px; }
+  .add-day-form .load-entry-list:empty { display: none; }
+  .add-day-form .load-entry {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+  }
+  .add-day-form .load-entry .le-info { font-size: 0.85rem; }
+  .add-day-form .load-entry .le-info strong { color: var(--faint); font-weight: 500; margin-right: 6px; }
+  .add-day-form .load-entry .le-meta { font-size: 0.75rem; color: var(--muted); }
+  .add-day-form .load-entry button,
+  .day-card .mini-load button.del-load {
+    background: transparent; border: none; color: var(--faint); font-size: 0.85rem; cursor: pointer; padding: 4px 8px;
+  }
+  .add-day-form .load-add-row { display: flex; gap: 8px; align-items: center; }
+  .add-day-form .load-add-row .time-col { width: 136px; flex-shrink: 0; }
+  .add-day-form .load-add-row .job-col, .add-day-form .load-add-row .mile-col { flex: 1; min-width: 0; }
+  .add-day-form .load-add-row .btn-col button {
+    width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 8px;
+    background: transparent; color: var(--text); font-size: 1.2rem; cursor: pointer;
+  }
+  .add-day-form .save-day-btn {
+    width: 100%; padding: 12px; border: none; border-radius: 8px; margin-top: 14px;
+    background: var(--text); color: #111; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+  }
+  .add-day-form .save-day-btn:disabled { background: var(--surface); color: var(--faint); cursor: default; }
+
+  .backup-card p { font-size: 0.78rem; color: var(--muted); margin: -6px 0 14px; line-height: 1.5; }
+  .backup-card .btns { display: flex; gap: 10px; }
+  .backup-card button {
+    flex: 1; padding: 11px; border: 1px solid var(--line); border-radius: 8px;
+    background: transparent; color: var(--text); font-weight: 500; font-size: 0.85rem; cursor: pointer;
+  }
+
+  .day-card { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  .day-card .day-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .day-card .day-date { font-size: 0.95rem; font-weight: 500; }
+  .day-card .day-count { font-size: 0.85rem; color: var(--muted); }
+  .day-card .expand-icon { font-size: 0.6rem; color: var(--faint); margin-left: 8px; }
+  .day-card .source-tag { font-size: 0.7rem; color: var(--faint); font-weight: 400; }
+  .day-card .day-meta { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+  .day-card .day-meta span { margin-right: 12px; }
+  .day-card .day-loads { margin-top: 8px; }
+  .day-card.collapsed .day-loads, .day-card.collapsed .day-meta, .day-card.collapsed .day-actions { display: none; }
+  .day-card .mini-load { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; font-size: 0.82rem; }
+  .day-card .mini-load .ml-left { display: flex; align-items: center; gap: 12px; }
+  .day-card .mini-load .ml-num { color: var(--faint); width: 18px; text-align: right; font-size: 0.75rem; }
+  .day-card .mini-load .ml-time { font-weight: 500; }
+  .day-card .mini-load .ml-meta { color: var(--muted); font-size: 0.72rem; }
+  .day-card .day-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .day-card .day-actions button {
+    background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 0.78rem;
+    cursor: pointer; padding: 7px 14px; border-radius: 8px;
+  }
+  .day-card .day-actions button.danger { color: var(--danger); }
+  .day-card .day-actions button.save { background: var(--text); border-color: var(--text); color: #111; font-weight: 600; }
+  .day-card .edit-date-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .day-card .edit-date-row label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .day-card .edit-date-row input, .day-card .edit-load input {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+    font-size: 0.82rem; padding: 7px 8px; outline: none;
+  }
+  .day-card .edit-date-row input:focus, .day-card .edit-load input:focus { border-color: var(--accent); }
+  .day-card .edit-load { display: flex; align-items: center; gap: 6px; padding: 4px 0; flex-wrap: wrap; }
+  .day-card .edit-load input { flex: 1; min-width: 60px; }
+  .day-card .edit-load input[type="time"] { flex: 0 0 116px; width: 116px; }
+  .day-card .edit-load .el-num { color: var(--faint); font-size: 0.75rem; min-width: 22px; }
+  .day-card .edit-load button {
+    background: transparent; border: none; color: var(--faint); font-size: 0.85rem; cursor: pointer; padding: 4px 6px;
+  }
+
+  /* Data */
+  .stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 28px;
+    border-top: 1px solid var(--line);
+  }
+  .stat-card { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .stat-card:nth-child(odd) { padding-right: 12px; }
+  .stat-card:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--line); }
+  .stat-card .stat-value { font-size: 1.5rem; font-weight: 400; }
+  .stat-card .stat-label { font-size: 0.68rem; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .chart-card { padding: 4px 0 24px; }
+  .chart-card h3 { font-size: 0.8rem; color: var(--text); font-weight: 500; margin-bottom: 14px; }
+  .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 130px; border-bottom: 1px solid var(--line); }
+  .bar-chart .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+  .bar-chart .bar { width: 100%; max-width: 28px; background: #3a3a40; border-radius: 3px 3px 0 0; min-height: 2px; }
+  .bar-chart .bar.best { background: var(--accent); }
+  .bar-chart .bar.worst { background: #3a3a40; }
+  .bar-chart .bar-val { font-size: 0.65rem; color: var(--muted); margin-bottom: 4px; }
+  .bar-chart .bar-label { font-size: 0.6rem; color: var(--faint); margin-top: 6px; margin-bottom: -20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .chart-card .bar-chart { margin-bottom: 22px; }
+
+  /* Modal & toast */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none;
+    align-items: center; justify-content: center; z-index: 200; padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; max-width: 340px; width: 100%; }
+  .modal h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+  .modal p { font-size: 0.85rem; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .modal .btns { display: flex; gap: 10px; }
+  .modal .btns button { flex: 1; padding: 11px; border-radius: 8px; border: 1px solid var(--line); font-weight: 500; font-size: 0.88rem; cursor: pointer; }
+  .modal .btns .cancel { background: transparent; color: var(--text); }
+  .modal .btns .confirm { background: var(--danger); border-color: var(--danger); color: #111; }
+  .modal .btns .confirm-blue { background: var(--accent); border-color: var(--accent); color: #111; }
+  .toast {
+    position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: #111; padding: 10px 18px; border-radius: 8px;
+    font-weight: 500; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s; z-index: 300;
+    pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+</style>
+
+</head>
+<body>
+  <header>
+    <h1>Gravel Load Tracker</h1>
+    <div class="date" id="todayDate"></div>
+    <div class="save-status" id="saveStatus"></div>
+  </header>
+
+  <!-- TAB 1: Tracker -->
+  <div class="tab-content active" id="tab-tracker">
+    <div class="count-display">
+      <div class="label">Loads Today</div>
+      <div class="number" id="loadCount">0</div>
+    </div>
+
+    <div class="field-row">
+      <div class="field-wrap">
+        <label>Job #</label>
+        <input type="text" id="jobInput" placeholder="e.g. 2024-087" autocomplete="off">
+      </div>
+      <div class="field-wrap">
+        <label>Mile Marker</label>
+        <input type="text" id="mileInput" placeholder="e.g. MM 142" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="main-btn-wrap">
+      <button class="add-btn" id="addBtn" onclick="addLoad()">Log Load</button>
+    </div>
+
+    <div class="actions-row">
+      <button onclick="newDay()">New Day</button>
+      <button class="danger" onclick="confirmClear()">Clear All</button>
+    </div>
+
+    <div class="history">
+      <h2>Load History</h2>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Day History -->
+  <div class="tab-content" id="tab-history">
+    <div class="history-tab">
+      
+
+      <div class="day-summary">
+        <div class="total" id="grandTotal">0</div>
+        <div class="label">Total Loads Logged</div>
+      </div>
+
+      <div class="add-day-form">
+        <h3>Add a day manually</h3>
+        <div class="form-row">
+          <label>Date</label>
+          <input type="date" id="manualDate" style="width:100%">
+        </div>
+
+        <div class="load-entry-list" id="pendingLoadsList"></div>
+
+        <label class="form-label">Add a Load</label>
+        <div class="load-add-row">
+          <div class="time-col">
+            <input type="time" id="pendingTime" value="08:00">
+          </div>
+          <div class="job-col">
+            <input type="text" id="pendingJob" placeholder="Job #">
+          </div>
+          <div class="mile-col">
+            <input type="text" id="pendingMile" placeholder="Mile">
+          </div>
+          <div class="btn-col">
+            <button onclick="addPendingLoad()" title="Add load">+</button>
+          </div>
+        </div>
+
+        <button class="save-day-btn" id="saveDayBtn" onclick="saveManualDay()" disabled>Save Day</button>
+      </div>
+
+      <div class="backup-card">
+        <h3>Backup</h3>
+        <p>Save a backup file of all your loads and days. Use Restore to load it back, for example on a new phone or after clearing your browser.</p>
+        <div class="btns">
+          <button onclick="exportBackup()">Save Backup</button>
+          <button onclick="document.getElementById('restoreFile').click()">Restore</button>
+        </div>
+        <input type="file" id="restoreFile" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
+      </div>
+
+      <h2>Day Log</h2>
+      <div id="dayList"></div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Data -->
+  <div class="tab-content" id="tab-data">
+    <div class="data-tab">
+      
+
+      <!-- Productivity Stats -->
+      <h2>Productivity</h2>
+      <div class="stat-grid" id="prodStats"></div>
+
+      <!-- Time Analytics -->
+      <h2>Time Analytics</h2>
+      <div class="stat-grid" id="timeStats"></div>
+
+      <!-- Charts -->
+      <h2>Charts</h2>
+      <div class="chart-card">
+        <h3>Loads Per Day (Last 14 Days)</h3>
+        <div class="bar-chart" id="barChart14"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Top Days by Load Count</h3>
+        <div class="bar-chart" id="topDaysChart"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Loads by Job #</h3>
+        <div class="bar-chart" id="jobChart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom tab bar -->
+  <div class="tab-bar">
+    <button class="active" id="tab1Btn" onclick="switchTab('tracker')">
+      <span>Tracker</span>
+    </button>
+    <button id="tab2Btn" onclick="switchTab('history')">
+      <span>History</span>
+    </button>
+    <button id="tab3Btn" onclick="switchTab('data')">
+      <span>Data</span>
+    </button>
+  </div>
+
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h3 id="modalTitle">Clear all loads?</h3>
+      <p id="modalText">This will permanently delete all load records for today.</p>
+      <div class="btns">
+        <button class="cancel" onclick="closeModal()">Cancel</button>
+        <button class="confirm" id="modalConfirm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  var STORAGE_KEY = 'gravel_loads_v3';
+  var loads = [];
+  var days = [];
+  var pendingLoads = [];
+  var storageOk = false;
+  var collapsedDays = {};
+  var editingDay = null;
+
+  try {
+    var test = '__gltest__';
+    localStorage.setItem(test, '1');
+    localStorage.removeItem(test);
+    storageOk = true;
+  } catch (e) {
+    storageOk = false;
+  }
+
+  function load() {
+    if (storageOk) {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          var data = JSON.parse(raw);
+          loads = data.loads || [];
+          days = data.days || [];
+        }
+      } catch (e) {}
+    }
+    document.getElementById('todayDate').textContent = formatDate(new Date());
+    var todayStr = localDateStr(new Date());
+    document.getElementById('manualDate').value = todayStr;
+    render();
+    renderPendingLoads();
+    renderData();
+    renderSaveStatus();
+    if (storageOk && navigator.storage && navigator.storage.persist) {
+      try { navigator.storage.persist(); } catch (e) {}
+    }
+  }
+
+  function save() {
+    if (storageOk) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ loads: loads, days: days }));
+      } catch (e) {}
+    }
+  }
+
+  function formatDate(d) {
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+
+  function formatDateShort(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  function formatDateShortAxis(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    return (d.getMonth() + 1) + '/' + d.getDate();
+  }
+
+  function formatTime(ts) {
+    return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function formatTimeStr(t) {
+    var parts = t.split(':');
+    var h = parseInt(parts[0], 10);
+    var m = parts[1];
+    var ap = h >= 12 ? 'PM' : 'AM';
+    var h12 = h % 12 || 12;
+    return h12 + ':' + m + ' ' + ap;
+  }
+
+  function formatDuration(ms) {
+    if (ms < 0) return '—';
+    var mins = Math.floor(ms / 60000);
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+
+  function elapsedString(ts) {
+    var diff = Date.now() - ts;
+    if (diff < 60000) return 'just now';
+    var mins = Math.floor(diff / 60000);
+    if (mins < 60) return mins + ' min ago';
+    var hrs = Math.floor(mins / 60);
+    var remMin = mins % 60;
+    return hrs + 'h ' + remMin + 'm ago';
+  }
+
+  function tsToTimeStr(ts) {
+    var d = new Date(ts);
+    var h = d.getHours();
+    var m = d.getMinutes();
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  function localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function renderSaveStatus() {
+    var el = document.getElementById('saveStatus');
+    if (storageOk) {
+      el.className = 'save-status ok';
+      el.textContent = 'Saving on this phone';
+    } else {
+      el.className = 'save-status bad';
+      el.textContent = 'Not saving here - use Save Backup';
+    }
+  }
+
+  function exportBackup() {
+    var payload = JSON.stringify({ app: 'gravel-tracker', version: 3, exported: new Date().toISOString(), loads: loads, days: days }, null, 2);
+    var blob = new Blob([payload], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'gravel-backup-' + localDateStr(new Date()) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+    showToast('Backup saved');
+  }
+
+  function importBackup(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function() {
+      try {
+        var data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.days) || !Array.isArray(data.loads)) throw new Error('bad');
+        loads = data.loads;
+        days = data.days;
+        save(); render(); renderData();
+        showToast('Restored ' + days.length + ' days');
+      } catch (e) {
+        showToast('That file is not a valid backup');
+      }
+      input.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function escStr(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // --- Tracker tab ---
+
+  function addLoad() {
+    var now = Date.now();
+    var job = document.getElementById('jobInput').value.trim();
+    var mile = document.getElementById('mileInput').value.trim();
+    loads.push({ id: now, time: now, job: job, mile: mile });
+    save();
+    render();
+    renderData();
+    showToast('Load #' + loads.length + ' logged');
+    haptic();
+  }
+
+  function undoLoad(id) {
+    loads = loads.filter(function(l) { return l.id !== id; });
+    save();
+    render();
+    renderData();
+    showToast('Load removed');
+  }
+
+  function confirmClear() {
+    if (loads.length === 0) { showToast('No loads to clear'); return; }
+    document.getElementById('modalTitle').textContent = 'Clear all loads?';
+    document.getElementById('modalText').textContent = 'This will permanently delete all ' + loads.length + ' load record' + (loads.length !== 1 ? 's' : '') + ' for today.';
+    var modal = document.getElementById('modal');
+    var confirmBtn = document.getElementById('modalConfirm');
+    confirmBtn.textContent = 'Delete';
+    confirmBtn.className = 'confirm';
+    modal.classList.add('show');
+    confirmBtn.onclick = function() {
+      loads = []; save(); render(); renderData(); closeModal();
+      showToast('All loads cleared');
+    };
+  }
+
+  function newDay() {
+    if (loads.length === 0) { showToast('No loads to archive'); return; }
+    document.getElementById('modalTitle').textContent = 'Save day & start new?';
+    var today = localDateStr(new Date());
+    document.getElementById('modalText').textContent = "Saves today's " + loads.length + ' load' + (loads.length !== 1 ? 's' : '') + ' to your Day History (with timestamps, job numbers, and mile markers) and resets the counter to zero.';
+    var modal = document.getElementById('modal');
+    var confirmBtn = document.getElementById('modalConfirm');
+    confirmBtn.textContent = 'Save & New Day';
+    confirmBtn.className = 'confirm-blue';
+    modal.classList.add('show');
+    confirmBtn.onclick = function() {
+      var archivedLoads = loads.map(function(l) {
+        return { time: l.time, job: l.job, mile: l.mile };
+      });
+      days.push({ id: Date.now(), date: today, loads: archivedLoads, source: 'archived' });
+      loads = []; save(); render(); renderData(); closeModal();
+      showToast('Day saved — ' + days.length + ' day record' + (days.length !== 1 ? 's' : '') + ' in history');
+    };
+  }
+
+  // --- Manual day entry (History tab) ---
+
+  function addPendingLoad() {
+    var timeVal = document.getElementById('pendingTime').value;
+    var jobVal = document.getElementById('pendingJob').value.trim();
+    var mileVal = document.getElementById('pendingMile').value.trim();
+    if (!timeVal) { showToast('Pick a time'); return; }
+    pendingLoads.push({ id: Date.now(), time: timeVal, job: jobVal, mile: mileVal });
+    renderPendingLoads();
+    document.getElementById('pendingJob').value = '';
+    document.getElementById('pendingMile').value = '';
+    document.getElementById('pendingJob').focus();
+  }
+
+  function removePendingLoad(id) {
+    pendingLoads = pendingLoads.filter(function(l) { return l.id !== id; });
+    renderPendingLoads();
+  }
+
+  function renderPendingLoads() {
+    var list = document.getElementById('pendingLoadsList');
+    var saveBtn = document.getElementById('saveDayBtn');
+    if (pendingLoads.length === 0) {
+      list.innerHTML = '';
+      saveBtn.disabled = true;
+      return;
+    }
+    var sorted = pendingLoads.slice().sort(function(a, b) { return a.time.localeCompare(b.time); });
+    var html = '';
+    for (var i = 0; i < sorted.length; i++) {
+      var l = sorted[i];
+      var metaParts = [];
+      if (l.job) metaParts.push('Job: ' + escStr(l.job));
+      if (l.mile) metaParts.push(escStr(l.mile));
+      var metaHtml = metaParts.length > 0 ? ' <span class="le-meta">· ' + metaParts.join(' · ') + '</span>' : '';
+      html += '<div class="load-entry">' +
+        '<div class="le-info"><strong>#' + (i + 1) + '</strong> ' + formatTimeStr(l.time) + metaHtml + '</div>' +
+        '<button onclick="removePendingLoad(' + l.id + ')">✕</button>' +
+      '</div>';
+    }
+    list.innerHTML = html;
+    saveBtn.disabled = false;
+  }
+
+  function saveManualDay() {
+    var dateStr = document.getElementById('manualDate').value;
+    if (!dateStr) { showToast('Please pick a date'); return; }
+    if (pendingLoads.length === 0) { showToast('Add at least one load'); return; }
+    var sorted = pendingLoads.slice().sort(function(a, b) { return a.time.localeCompare(b.time); });
+    var savedLoads = sorted.map(function(l) {
+      var ts = new Date(dateStr + 'T' + l.time + ':00').getTime();
+      return { time: ts, job: l.job, mile: l.mile };
+    });
+    days.push({ id: Date.now(), date: dateStr, loads: savedLoads, source: 'manual' });
+    pendingLoads = [];
+    save();
+    render();
+    renderPendingLoads();
+    renderData();
+    showToast('Day saved: ' + savedLoads.length + ' loads');
+  }
+
+  // --- Collapse/expand and edit ---
+
+  function toggleDay(id) {
+    if (collapsedDays[id]) {
+      delete collapsedDays[id];
+    } else {
+      collapsedDays[id] = true;
+    }
+    render();
+  }
+
+  function startEditDay(id) {
+    editingDay = id;
+    if (collapsedDays[id]) delete collapsedDays[id];
+    render();
+  }
+
+  function cancelEditDay() {
+    editingDay = null;
+    render();
+  }
+
+  function saveEditDay(dayId) {
+    var day = days.find(function(d) { return d.id === dayId; });
+    if (!day) return;
+    var newDate = document.getElementById('editDate_' + dayId).value;
+    if (!newDate) { showToast('Pick a valid date'); return; }
+    day.date = newDate;
+    for (var i = 0; i < day.loads.length; i++) {
+      var timeVal = document.getElementById('editTime_' + dayId + '_' + i).value;
+      var jobVal = document.getElementById('editJob_' + dayId + '_' + i).value.trim();
+      var mileVal = document.getElementById('editMile_' + dayId + '_' + i).value.trim();
+      if (timeVal) {
+        var ts = new Date(newDate + 'T' + timeVal + ':00').getTime();
+        day.loads[i].time = ts;
+      }
+      day.loads[i].job = jobVal;
+      day.loads[i].mile = mileVal;
+    }
+    save();
+    editingDay = null;
+    render();
+    renderData();
+    showToast('Day updated');
+  }
+
+  function deleteDayLoadEdit(dayId, loadIdx) {
+    var day = days.find(function(d) { return d.id === dayId; });
+    if (!day) return;
+    day.loads.splice(loadIdx, 1);
+    if (day.loads.length === 0) {
+      days = days.filter(function(d) { return d.id !== dayId; });
+      editingDay = null;
+      showToast('Last load removed — day deleted');
+    } else {
+      showToast('Load removed');
+    }
+    save();
+    render();
+    renderData();
+  }
+
+  function deleteDay(id) {
+    var day = days.find(function(d) { return d.id === id; });
+    if (!day) return;
+    document.getElementById('modalTitle').textContent = 'Delete this day?';
+    document.getElementById('modalText').textContent = formatDateShort(day.date) + ' — ' + day.loads.length + ' loads. This cannot be undone.';
+    var modal = document.getElementById('modal');
+    var confirmBtn = document.getElementById('modalConfirm');
+    confirmBtn.textContent = 'Delete';
+    confirmBtn.className = 'confirm';
+    modal.classList.add('show');
+    confirmBtn.onclick = function() {
+      days = days.filter(function(d) { return d.id !== id; });
+      save(); render(); renderData(); closeModal();
+      showToast('Day deleted');
+    };
+  }
+
+  function deleteDayLoad(dayId, loadIdx) {
+    var day = days.find(function(d) { return d.id === dayId; });
+    if (!day) return;
+    day.loads.splice(loadIdx, 1);
+    if (day.loads.length === 0) {
+      days = days.filter(function(d) { return d.id !== dayId; });
+      showToast('Last load removed — day deleted');
+    } else {
+      showToast('Load removed');
+    }
+    save(); render(); renderData();
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+  }
+
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+    document.querySelectorAll('.tab-bar button').forEach(function(el) { el.classList.remove('active'); });
+    if (tabName === 'tracker') {
+      document.getElementById('tab-tracker').classList.add('active');
+      document.getElementById('tab1Btn').classList.add('active');
+    } else if (tabName === 'history') {
+      document.getElementById('tab-history').classList.add('active');
+      document.getElementById('tab2Btn').classList.add('active');
+    } else if (tabName === 'data') {
+      document.getElementById('tab-data').classList.add('active');
+      document.getElementById('tab3Btn').classList.add('active');
+      renderData();
+    }
+  }
+
+  // --- Data tab rendering ---
+
+  function getAllDaysWithLoads() {
+    // Merge archived days and today's loads into a unified list of {date, loads[]}
+    var allDays = days.map(function(d) {
+      return { date: d.date, loads: d.loads.slice(), source: d.source };
+    });
+    if (loads.length > 0) {
+      var today = localDateStr(new Date());
+      var existing = allDays.find(function(d) { return d.date === today; });
+      if (existing) {
+        // Merge today's loads into existing day
+        existing.loads = existing.loads.concat(loads.map(function(l) {
+          return { time: l.time, job: l.job, mile: l.mile };
+        }));
+      } else {
+        allDays.push({
+          date: today,
+          loads: loads.map(function(l) { return { time: l.time, job: l.job, mile: l.mile }; }),
+          source: 'tracker'
+        });
+      }
+    }
+    return allDays;
+  }
+
+  function renderData() {
+    var allDays = getAllDaysWithLoads();
+    var totalLoads = 0;
+    var allTimes = []; // all timestamps for gap calc
+
+    for (var i = 0; i < allDays.length; i++) {
+      totalLoads += allDays[i].loads.length;
+      for (var j = 0; j < allDays[i].loads.length; j++) {
+        allTimes.push({ ts: allDays[i].loads[j].time, date: allDays[i].date });
+      }
+    }
+
+    // Sort days by date for stats
+    var sortedDays = allDays.slice().sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+
+    // --- Productivity Stats ---
+    var prodHtml = '';
+    var totalDays = sortedDays.length;
+
+    // Best day
+    var bestDay = null, worstDay = null;
+    for (var k = 0; k < sortedDays.length; k++) {
+      if (!bestDay || sortedDays[k].loads.length > bestDay.loads.length) bestDay = sortedDays[k];
+      if (!worstDay || sortedDays[k].loads.length < worstDay.loads.length) worstDay = sortedDays[k];
+    }
+
+    // Average per day
+    var avgPerDay = totalDays > 0 ? (totalLoads / totalDays).toFixed(1) : '0';
+
+    // Consecutive streak
+    var streak = 0;
+    if (sortedDays.length > 0) {
+      var checkDate = new Date();
+      for (var s = sortedDays.length - 1; s >= 0; s--) {
+        var dayDate = new Date(sortedDays[s].date + 'T00:00:00');
+        var checkStr = localDateStr(checkDate);
+        if (sortedDays[s].date === checkStr) {
+          streak++;
+          checkDate.setDate(checkDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+    }
+
+    // This week's loads
+    var now = new Date();
+    var weekStart = new Date(now);
+    var dayOfWeek = now.getDay();
+    weekStart.setDate(now.getDate() - dayOfWeek);
+    weekStart.setHours(0, 0, 0, 0);
+    var thisWeekLoads = 0;
+    var lastWeekLoads = 0;
+    var lastWeekStart = new Date(weekStart);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+    for (var w = 0; w < sortedDays.length; w++) {
+      var dayDate2 = new Date(sortedDays[w].date + 'T00:00:00');
+      if (dayDate2 >= weekStart) {
+        thisWeekLoads += sortedDays[w].loads.length;
+      } else if (dayDate2 >= lastWeekStart) {
+        lastWeekLoads += sortedDays[w].loads.length;
+      }
+    }
+
+    prodHtml += statCard(totalLoads, 'Total Loads', '');
+    prodHtml += statCard(totalDays, 'Days Worked', 'green');
+    prodHtml += statCard(avgPerDay, 'Avg / Day', 'purple');
+    prodHtml += statCard(streak, 'Day Streak', 'orange');
+    prodHtml += statCard(bestDay ? bestDay.loads.length : 0, 'Best Day', 'green');
+    prodHtml += statCard(worstDay ? worstDay.loads.length : 0, 'Worst Day', 'red');
+    prodHtml += statCard(thisWeekLoads, 'This Week', '');
+    prodHtml += statCard(lastWeekLoads, 'Last Week', 'purple');
+
+    document.getElementById('prodStats').innerHTML = prodHtml;
+
+    // --- Time Analytics ---
+    var gaps = [];
+    var shiftDurations = [];
+
+    for (var d = 0; d < sortedDays.length; d++) {
+      var dayLoads = sortedDays[d].loads.slice().sort(function(a, b) { return a.time - b.time; });
+      if (dayLoads.length >= 2) {
+        for (var g = 1; g < dayLoads.length; g++) {
+          gaps.push(dayLoads[g].time - dayLoads[g - 1].time);
+        }
+        shiftDurations.push(dayLoads[dayLoads.length - 1].time - dayLoads[0].time);
+      }
+    }
+
+    var fastestGap = gaps.length ? Math.min.apply(null, gaps) : 0;
+    var slowestGap = gaps.length ? Math.max.apply(null, gaps) : 0;
+    var avgGap = gaps.length ? gaps.reduce(function(a, b) { return a + b; }, 0) / gaps.length : 0;
+    var totalShiftMs = shiftDurations.reduce(function(a, b) { return a + b; }, 0);
+    var avgShift = shiftDurations.length ? totalShiftMs / shiftDurations.length : 0;
+    var loadsPerHr = '—';
+    if (avgShift > 60000 && totalLoads > 0) {
+      loadsPerHr = (totalLoads / (totalShiftMs / 3600000)).toFixed(1);
+    } else if (totalShiftMs > 0 && totalLoads > 0) {
+      loadsPerHr = (totalLoads / (totalShiftMs / 60000)).toFixed(1) + '/min';
+    }
+
+    var timeHtml = '';
+    timeHtml += statCard(formatDuration(fastestGap), 'Fastest Gap', 'green');
+    timeHtml += statCard(formatDuration(slowestGap), 'Slowest Gap', 'red');
+    timeHtml += statCard(formatDuration(avgGap), 'Avg Gap', 'purple');
+    timeHtml += statCard(formatDuration(avgShift), 'Avg Shift', 'orange');
+    timeHtml += statCard(loadsPerHr, 'Loads / Hr', '');
+    timeHtml += statCard(formatDuration(totalShiftMs), 'Total Hours', 'green');
+
+    document.getElementById('timeStats').innerHTML = timeHtml;
+
+    // --- Charts ---
+
+    // Last 14 days bar chart
+    var last14 = [];
+    var todayDate = new Date();
+    for (var b = 13; b >= 0; b--) {
+      var bd = new Date(todayDate);
+      bd.setDate(todayDate.getDate() - b);
+      var bStr = localDateStr(bd);
+      var dayLoadsCount = 0;
+      for (var bd2 = 0; bd2 < allDays.length; bd2++) {
+        if (allDays[bd2].date === bStr) {
+          dayLoadsCount = allDays[bd2].loads.length;
+          break;
+        }
+      }
+      last14.push({ date: bStr, count: dayLoadsCount });
+    }
+    renderBarChart('barChart14', last14.map(function(d) {
+      return { label: formatDateShortAxis(d.date), value: d.count };
+    }));
+
+    // Top days by load count
+    var topDays = sortedDays.slice().sort(function(a, b) { return b.loads.length - a.loads.length; }).slice(0, 7);
+    renderBarChart('topDaysChart', topDays.map(function(d) {
+      return { label: formatDateShortAxis(d.date), value: d.loads.length, highlight: d === bestDay ? 'best' : (d === worstDay ? 'worst' : '') };
+    }));
+
+    // Loads by job #
+    var jobCounts = {};
+    for (var jc = 0; jc < allDays.length; jc++) {
+      for (var jl = 0; jl < allDays[jc].loads.length; jl++) {
+        var j = allDays[jc].loads[jl].job;
+        if (j) {
+          jobCounts[j] = (jobCounts[j] || 0) + 1;
+        }
+      }
+    }
+    var jobArr = Object.keys(jobCounts).map(function(k) { return { label: k, value: jobCounts[k] }; });
+    jobArr.sort(function(a, b) { return b.value - a.value; });
+    renderBarChart('jobChart', jobArr.slice(0, 7));
+  }
+
+  function statCard(value, label, colorClass) {
+    return '<div class="stat-card ' + colorClass + '">' +
+      '<div class="stat-value">' + value + '</div>' +
+      '<div class="stat-label">' + label + '</div>' +
+    '</div>';
+  }
+
+  function renderBarChart(containerId, items) {
+    var container = document.getElementById(containerId);
+    if (!items || items.length === 0) {
+      container.innerHTML = '<div class="empty" style="padding:20px">No data yet</div>';
+      return;
+    }
+    var maxVal = Math.max.apply(null, items.map(function(i) { return i.value; }));
+    if (maxVal === 0) maxVal = 1;
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var heightPct = (items[i].value / maxVal) * 82;
+      var highlight = items[i].highlight || '';
+      html += '<div class="bar-col">' +
+        '<div class="bar-val">' + (items[i].value || '') + '</div>' +
+        '<div class="bar ' + highlight + '" style="height:' + heightPct + '%"></div>' +
+        '<div class="bar-label">' + escStr(items[i].label) + '</div>' +
+      '</div>';
+    }
+    container.innerHTML = html;
+  }
+
+  // --- Main render ---
+
+  function render() {
+    document.getElementById('todayDate').textContent = formatDate(new Date());
+    document.getElementById('loadCount').textContent = loads.length;
+
+    // Tracker history list
+    var list = document.getElementById('historyList');
+    if (loads.length === 0) {
+      list.innerHTML = '<div class="empty">No loads logged yet.<br>Tap Log Load to add your first one.</div>';
+    } else {
+      var reversed = loads.slice().reverse();
+      var html = '';
+      for (var i = 0; i < reversed.length; i++) {
+        var actualNum = loads.length - i;
+        var l = reversed[i];
+        var metaParts = [];
+        if (l.job) metaParts.push('Job: ' + escStr(l.job));
+        if (l.mile) metaParts.push(escStr(l.mile));
+        var metaHtml = metaParts.length > 0 ? '<div class="meta">' + metaParts.join(' · ') + '</div>' : '';
+        html += '<div class="load-item">' +
+          '<div class="left">' +
+            '<div class="num-badge">' + actualNum + '</div>' +
+            '<div>' +
+              '<div class="time">' + formatTime(l.time) + '</div>' +
+              metaHtml +
+              '<div class="elapsed">' + elapsedString(l.time) + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button class="undo" onclick="undoLoad(' + l.id + ')">Undo</button>' +
+        '</div>';
+      }
+      list.innerHTML = html;
+    }
+
+    // Day history tab
+    var dayList = document.getElementById('dayList');
+    var grandTotal = 0;
+    if (days.length === 0) {
+      dayList.innerHTML = '<div class="empty">No days logged yet.<br>Use the form above to add a day manually, or tap "New Day" on the Tracker tab to save today\'s loads.</div>';
+    } else {
+      var sorted = days.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+      var dHtml = '';
+      for (var j = 0; j < sorted.length; j++) {
+        var d = sorted[j];
+        var dayCount = d.loads.length;
+        grandTotal += dayCount;
+        var sourceTag = d.source === 'manual' ? ' (manual)' : ' (archived)';
+        var isCollapsed = collapsedDays[d.id];
+        var isEditing = editingDay === d.id;
+
+        var jobs = [];
+        var miles = [];
+        for (var k = 0; k < d.loads.length; k++) {
+          if (d.loads[k].job && jobs.indexOf(d.loads[k].job) === -1) jobs.push(d.loads[k].job);
+          if (d.loads[k].mile && miles.indexOf(d.loads[k].mile) === -1) miles.push(d.loads[k].mile);
+        }
+        var dayMeta = [];
+        if (jobs.length > 0) dayMeta.push('<span>Job: ' + escStr(jobs.join(', ')) + '</span>');
+        if (miles.length > 0) dayMeta.push('<span>' + escStr(miles.join(', ')) + '</span>');
+
+        dHtml += '<div class="day-card' + (isCollapsed ? ' collapsed' : '') + '">';
+        dHtml += '<div class="day-header" onclick="toggleDay(' + d.id + ')">';
+        dHtml += '<div class="day-date">' + formatDateShort(d.date) + ' <span class="source-tag">' + sourceTag + '</span><span class="expand-icon">' + (isCollapsed ? '+' : '−') + '</span></div>';
+        dHtml += '<div class="day-count">' + dayCount + ' loads</div>';
+        dHtml += '</div>';
+
+        if (isEditing) {
+          dHtml += '<div class="edit-date-row"><label>Date</label>';
+          dHtml += '<input type="date" id="editDate_' + d.id + '" value="' + d.date + '"></div>';
+          for (var me = 0; me < d.loads.length; me++) {
+            var el = d.loads[me];
+            var elTime = tsToTimeStr(el.time);
+            dHtml += '<div class="edit-load">';
+            dHtml += '<span class="el-num">#' + (me + 1) + '</span>';
+            dHtml += '<input type="time" id="editTime_' + d.id + '_' + me + '" value="' + elTime + '">';
+            dHtml += '<input type="text" id="editJob_' + d.id + '_' + me + '" value="' + escStr(el.job) + '" placeholder="Job #">';
+            dHtml += '<input type="text" id="editMile_' + d.id + '_' + me + '" value="' + escStr(el.mile) + '" placeholder="Mile">';
+            dHtml += '<button onclick="deleteDayLoadEdit(' + d.id + ', ' + me + ')">✕</button>';
+            dHtml += '</div>';
+          }
+          dHtml += '<div class="day-actions">';
+          dHtml += '<button class="save" onclick="saveEditDay(' + d.id + ')">Save</button>';
+          dHtml += '<button onclick="cancelEditDay()">Cancel</button>';
+          dHtml += '<button class="danger" onclick="deleteDay(' + d.id + ')">Delete Day</button>';
+          dHtml += '</div>';
+        } else {
+          if (dayMeta.length > 0) dHtml += '<div class="day-meta">' + dayMeta.join('') + '</div>';
+          dHtml += '<div class="day-loads">';
+          for (var m = 0; m < d.loads.length; m++) {
+            var dl = d.loads[m];
+            var dlMeta = [];
+            if (dl.job) dlMeta.push('Job: ' + escStr(dl.job));
+            if (dl.mile) dlMeta.push(escStr(dl.mile));
+            var dlMetaHtml = dlMeta.length > 0 ? dlMeta.join(' · ') : '';
+            dHtml += '<div class="mini-load">';
+            dHtml += '<div class="ml-left">';
+            dHtml += '<div class="ml-num">' + (m + 1) + '</div>';
+            dHtml += '<div><span class="ml-time">' + formatTime(dl.time) + '</span>';
+            dHtml += '<div class="ml-meta">' + dlMetaHtml + '</div>';
+            dHtml += '</div></div>';
+            dHtml += '<button class="del-load" onclick="deleteDayLoad(' + d.id + ', ' + m + ')">✕</button>';
+            dHtml += '</div>';
+          }
+          dHtml += '</div>';
+          dHtml += '<div class="day-actions">';
+          dHtml += '<button onclick="startEditDay(' + d.id + ')">Edit</button>';
+          dHtml += '<button class="danger" onclick="deleteDay(' + d.id + ')">Delete Day</button>';
+          dHtml += '</div>';
+        }
+
+        dHtml += '</div>';
+      }
+      dayList.innerHTML = dHtml;
+    }
+    document.getElementById('grandTotal').textContent = grandTotal;
+  }
+
+  function showToast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(function() { t.classList.remove('show'); }, 2000);
+  }
+
+  function haptic() {
+    if (navigator.vibrate) navigator.vibrate(50);
+  }
+
+  document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  document.getElementById('pendingMile').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addPendingLoad(); }
+  });
+
+  load();
+  setInterval(function() { render(); renderData(); }, 60000);
+</script>
+</body>
+</html>
