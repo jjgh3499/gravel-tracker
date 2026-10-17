@@ -108,10 +108,30 @@
   .day-summary .total { font-size: 2.5rem; font-weight: 300; line-height: 1; }
   .day-summary .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 6px; }
 
-  .add-day-form, .backup-card {
+  .quick-card textarea {
+    width: 100%; min-height: 150px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); color: var(--text); font-size: 0.95rem; outline: none; resize: vertical;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; line-height: 1.5;
+  }
+  .quick-card textarea:focus { border-color: var(--accent); }
+  .quick-card .hint { font-size: 0.75rem; color: var(--muted); margin: -6px 0 12px; line-height: 1.5; }
+  .quick-card .hint code { font-family: ui-monospace, Menlo, monospace; color: var(--text); }
+  .quick-preview { margin-top: 12px; font-size: 0.82rem; }
+  .quick-preview:empty { display: none; }
+  .quick-preview .qp-day { font-weight: 600; margin: 10px 0 4px; }
+  .quick-preview .qp-day .qp-note { font-weight: 400; color: var(--muted); font-size: 0.75rem; }
+  .quick-preview .qp-load { color: var(--muted); padding: 2px 0; }
+  .quick-preview .qp-load b { color: var(--text); font-weight: 500; }
+  .quick-preview .qp-err { color: var(--danger); padding: 2px 0; }
+  .quick-card .save-day-btn {
+    width: 100%; padding: 12px; border: none; border-radius: 8px; margin-top: 14px;
+    background: var(--text); color: #111; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+  }
+  .quick-card .save-day-btn:disabled { background: var(--surface); color: var(--faint); cursor: default; }
+  .add-day-form, .backup-card, .quick-card {
     border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 24px;
   }
-  .add-day-form h3, .backup-card h3 { font-size: 0.9rem; font-weight: 500; margin-bottom: 14px; }
+  .add-day-form h3, .backup-card h3, .quick-card h3 { font-size: 0.9rem; font-weight: 500; margin-bottom: 14px; }
   .add-day-form .form-row { margin-bottom: 14px; }
   .add-day-form input {
     width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
@@ -319,6 +339,14 @@
         </div>
 
         <button class="save-day-btn" id="saveDayBtn" onclick="saveManualDay()" disabled>Save Day</button>
+      </div>
+
+      <div class="quick-card">
+        <h3>Quick entry</h3>
+        <p class="hint">Date on the first line, then one load per line:<br><code>load#.time.job#.mile</code> with 24-hour time. You can add more than one day by starting a new date line.</p>
+        <textarea id="quickText" placeholder="9/11&#10;1.0900.1.2&#10;2.0945.1.2&#10;3.1030.1.2" autocapitalize="off" autocomplete="off" spellcheck="false" oninput="renderQuickPreview()"></textarea>
+        <div class="quick-preview" id="quickPreview"></div>
+        <button class="save-day-btn" id="quickSaveBtn" onclick="saveQuickEntry()" disabled>Save</button>
       </div>
 
       <div class="backup-card">
@@ -646,6 +674,107 @@
     }
     list.innerHTML = html;
     saveBtn.disabled = false;
+  }
+
+  // --- Quick text entry ---
+
+  function parseQuickText(text) {
+    var out = { days: [], errors: [] };
+    var cur = null;
+    var lines = text.split(/\r?\n/);
+    var today = new Date();
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+      var dm = line.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+      if (dm) {
+        var mo = parseInt(dm[1], 10), da = parseInt(dm[2], 10);
+        var yr;
+        if (dm[3]) { yr = parseInt(dm[3], 10); if (yr < 100) yr += 2000; }
+        else {
+          yr = today.getFullYear();
+          var test = new Date(yr, mo - 1, da);
+          if (test > today) yr -= 1;
+        }
+        var dt = new Date(yr, mo - 1, da);
+        if (mo < 1 || mo > 12 || da < 1 || dt.getMonth() !== mo - 1) {
+          out.errors.push('Line ' + (i + 1) + ': "' + line + '" is not a valid date');
+          cur = null; continue;
+        }
+        cur = { date: localDateStr(dt), loads: [] };
+        out.days.push(cur);
+        continue;
+      }
+      var parts = line.split('.').map(function(x) { return x.trim(); });
+      if (parts.length < 2 || !/^\d{3,4}$/.test(parts[1])) {
+        out.errors.push('Line ' + (i + 1) + ': "' + line + '" should look like 1.0900.1.2');
+        continue;
+      }
+      if (!cur) { out.errors.push('Line ' + (i + 1) + ': add a date line (like 9/11) before the loads'); continue; }
+      var t = parts[1].padStart(4, '0');
+      var hh = parseInt(t.slice(0, 2), 10), mm = parseInt(t.slice(2), 10);
+      if (hh > 23 || mm > 59) { out.errors.push('Line ' + (i + 1) + ': "' + parts[1] + '" is not a valid 24-hour time'); continue; }
+      cur.loads.push({
+        num: parts[0],
+        time: String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'),
+        job: parts[2] || '',
+        mile: (function(m) { return /^\d+(\.\d+)?$/.test(m) ? 'MM ' + m : m; })(parts.slice(3).join('.'))
+      });
+    }
+    out.days = out.days.filter(function(d) {
+      if (d.loads.length === 0) { out.errors.push(formatDateShort(d.date) + ' has no loads'); return false; }
+      return true;
+    });
+    return out;
+  }
+
+  function renderQuickPreview() {
+    var text = document.getElementById('quickText').value;
+    var box = document.getElementById('quickPreview');
+    var btn = document.getElementById('quickSaveBtn');
+    if (!text.trim()) { box.innerHTML = ''; btn.disabled = true; btn.textContent = 'Save'; return; }
+    var res = parseQuickText(text);
+    var html = '';
+    var total = 0;
+    res.days.forEach(function(d) {
+      total += d.loads.length;
+      var existing = days.find(function(x) { return x.date === d.date; });
+      var note = existing ? ' <span class="qp-note">(adds to ' + existing.loads.length + ' already logged)</span>' : '';
+      html += '<div class="qp-day">' + formatDateShort(d.date) + ' \u00b7 ' + d.loads.length + (d.loads.length === 1 ? ' load' : ' loads') + note + '</div>';
+      d.loads.forEach(function(l) {
+        var meta = [];
+        if (l.job) meta.push('Job ' + escStr(l.job));
+        if (l.mile) meta.push(escStr(l.mile));
+        html += '<div class="qp-load">#' + escStr(l.num) + ' <b>' + formatTimeStr(l.time) + '</b>' + (meta.length ? ' \u00b7 ' + meta.join(' \u00b7 ') : '') + '</div>';
+      });
+    });
+    res.errors.forEach(function(e) { html += '<div class="qp-err">' + escStr(e) + '</div>'; });
+    box.innerHTML = html;
+    var ok = res.days.length > 0 && res.errors.length === 0;
+    btn.disabled = !ok;
+    btn.textContent = ok ? 'Save ' + total + (total === 1 ? ' load' : ' loads') : 'Save';
+  }
+
+  function saveQuickEntry() {
+    var res = parseQuickText(document.getElementById('quickText').value);
+    if (res.errors.length || !res.days.length) { renderQuickPreview(); return; }
+    var total = 0;
+    res.days.forEach(function(d) {
+      var newLoads = d.loads.map(function(l) {
+        return { time: new Date(d.date + 'T' + l.time + ':00').getTime(), job: l.job, mile: l.mile };
+      });
+      total += newLoads.length;
+      var existing = days.find(function(x) { return x.date === d.date; });
+      if (existing) {
+        existing.loads = existing.loads.concat(newLoads).sort(function(a, b) { return a.time - b.time; });
+      } else {
+        days.push({ id: Date.now() + Math.floor(Math.random() * 1000), date: d.date, loads: newLoads.sort(function(a, b) { return a.time - b.time; }), source: 'manual' });
+      }
+    });
+    save(); render(); renderData();
+    document.getElementById('quickText').value = '';
+    renderQuickPreview();
+    showToast('Saved ' + total + (total === 1 ? ' load' : ' loads'));
   }
 
   function saveManualDay() {
