@@ -152,6 +152,14 @@
     background: transparent; color: var(--text); font-weight: 500; font-size: 0.85rem; cursor: pointer;
   }
 
+  .week { border-bottom: 1px solid var(--line); }
+  .week-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; cursor: pointer; }
+  .week-title { font-size: 0.95rem; font-weight: 600; }
+  .week-count { font-size: 0.82rem; color: var(--muted); }
+  .week .expand-icon { font-size: 0.75rem; color: var(--faint); margin-left: 8px; }
+  .week.collapsed .week-days { display: none; }
+  .week-days { padding: 0 0 8px 14px; border-left: 1px solid var(--line); margin-bottom: 12px; }
+  .week-days .day-card:last-child { border-bottom: none; }
   .day-card { border-bottom: 1px solid var(--line); padding: 14px 0; }
   .day-card .day-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
   .day-card .day-date { font-size: 0.95rem; font-weight: 500; }
@@ -389,7 +397,8 @@
   var days = [];
   var pendingLoads = [];
   var storageOk = false;
-  var collapsedDays = {};
+  var expandedDays = {};
+  var expandedWeeks = {};
   var editingDay = null;
 
   try {
@@ -659,17 +668,33 @@
   // --- Collapse/expand and edit ---
 
   function toggleDay(id) {
-    if (collapsedDays[id]) {
-      delete collapsedDays[id];
-    } else {
-      collapsedDays[id] = true;
-    }
+    if (expandedDays[id]) delete expandedDays[id]; else expandedDays[id] = true;
     render();
+  }
+
+  function toggleWeek(key) {
+    if (expandedWeeks[key]) delete expandedWeeks[key]; else expandedWeeks[key] = true;
+    render();
+  }
+
+  function weekStartStr(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - d.getDay());
+    return localDateStr(d);
+  }
+
+  function weekLabel(startStr) {
+    var a = new Date(startStr + 'T00:00:00');
+    var b = new Date(a); b.setDate(a.getDate() + 6);
+    var o = { month: 'short', day: 'numeric' };
+    return a.toLocaleDateString('en-US', o) + ' \u2013 ' + b.toLocaleDateString('en-US', o);
   }
 
   function startEditDay(id) {
     editingDay = id;
-    if (collapsedDays[id]) delete collapsedDays[id];
+    expandedDays[id] = true;
+    var day = days.find(function(x) { return x.id === id; });
+    if (day) expandedWeeks[weekStartStr(day.date)] = true;
     render();
   }
 
@@ -1019,14 +1044,35 @@
       dayList.innerHTML = '<div class="empty">No days logged yet.<br>Use the form above to add a day manually, or tap "New Day" on the Tracker tab to save today\'s loads.</div>';
     } else {
       var sorted = days.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+      var weekTotals = {};
+      for (var wt = 0; wt < sorted.length; wt++) {
+        var wk = weekStartStr(sorted[wt].date);
+        if (!weekTotals[wk]) weekTotals[wk] = { loads: 0, days: 0 };
+        weekTotals[wk].loads += sorted[wt].loads.length;
+        weekTotals[wk].days += 1;
+      }
+      var thisWeekKey = weekStartStr(localDateStr(new Date()));
       var dHtml = '';
+      var currentWeek = null;
       for (var j = 0; j < sorted.length; j++) {
         var d = sorted[j];
+        var wKey = weekStartStr(d.date);
+        if (wKey !== currentWeek) {
+          if (currentWeek !== null) dHtml += '</div></div>';
+          currentWeek = wKey;
+          var wOpen = !!expandedWeeks[wKey];
+          var wInfo = weekTotals[wKey];
+          dHtml += '<div class="week' + (wOpen ? '' : ' collapsed') + '">';
+          dHtml += '<div class="week-header" onclick="toggleWeek(\'' + wKey + '\')">';
+          dHtml += '<div class="week-title">' + weekLabel(wKey) + (wKey === thisWeekKey ? ' <span class="source-tag">this week</span>' : '') + '<span class="expand-icon">' + (wOpen ? '\u2212' : '+') + '</span></div>';
+          dHtml += '<div class="week-count">' + wInfo.loads + ' loads \u00b7 ' + wInfo.days + (wInfo.days === 1 ? ' day' : ' days') + '</div>';
+          dHtml += '</div><div class="week-days">';
+        }
         var dayCount = d.loads.length;
         grandTotal += dayCount;
         var sourceTag = d.source === 'manual' ? ' (manual)' : ' (archived)';
-        var isCollapsed = collapsedDays[d.id];
         var isEditing = editingDay === d.id;
+        var isCollapsed = !expandedDays[d.id] && !isEditing;
 
         var jobs = [];
         var miles = [];
@@ -1090,6 +1136,7 @@
 
         dHtml += '</div>';
       }
+      if (currentWeek !== null) dHtml += '</div></div>';
       dayList.innerHTML = dHtml;
     }
     document.getElementById('grandTotal').textContent = grandTotal;
