@@ -156,6 +156,7 @@
   .week-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; cursor: pointer; }
   .week-title { font-size: 0.95rem; font-weight: 600; }
   .week-count { font-size: 0.82rem; color: var(--muted); }
+  .week-title .source-tag { font-size: 0.7rem; color: var(--faint); font-weight: 400; margin-left: 4px; }
   .week .expand-icon { font-size: 0.75rem; color: var(--faint); margin-left: 8px; }
   .week.collapsed .week-days { display: none; }
   .week-days { padding: 0 0 8px 14px; border-left: 1px solid var(--line); margin-bottom: 12px; }
@@ -1065,7 +1066,7 @@
           dHtml += '<div class="week' + (wOpen ? '' : ' collapsed') + '">';
           dHtml += '<div class="week-header" onclick="toggleWeek(\'' + wKey + '\')">';
           dHtml += '<div class="week-title">' + weekLabel(wKey) + (wKey === thisWeekKey ? ' <span class="source-tag">this week</span>' : '') + '<span class="expand-icon">' + (wOpen ? '\u2212' : '+') + '</span></div>';
-          dHtml += '<div class="week-count">' + wInfo.loads + ' loads \u00b7 ' + wInfo.days + (wInfo.days === 1 ? ' day' : ' days') + '</div>';
+          dHtml += '<div class="week-count">' + wInfo.loads + (wInfo.loads === 1 ? ' load' : ' loads') + ' \u00b7 ' + wInfo.days + (wInfo.days === 1 ? ' day' : ' days') + '</div>';
           dHtml += '</div><div class="week-days">';
         }
         var dayCount = d.loads.length;
@@ -1087,7 +1088,7 @@
         dHtml += '<div class="day-card' + (isCollapsed ? ' collapsed' : '') + '">';
         dHtml += '<div class="day-header" onclick="toggleDay(' + d.id + ')">';
         dHtml += '<div class="day-date">' + formatDateShort(d.date) + ' <span class="source-tag">' + sourceTag + '</span><span class="expand-icon">' + (isCollapsed ? '+' : '−') + '</span></div>';
-        dHtml += '<div class="day-count">' + dayCount + ' loads</div>';
+        dHtml += '<div class="day-count">' + dayCount + (dayCount === 1 ? ' load' : ' loads') + '</div>';
         dHtml += '</div>';
 
         if (isEditing) {
